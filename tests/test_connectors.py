@@ -38,8 +38,11 @@ class FakePolymarketHttpClient:
                     }
                 ]
             )
+        raise AssertionError(f"Unexpected url: {url}")
+
+    async def post(self, url: str, json):
         if url.endswith("/prices"):
-            token_ids = [token_id for key, token_id in params if key == "token_ids"]
+            token_ids = {item["token_id"] for item in json}
             return FakeResponse(
                 {token_id: {"BUY": "0.50", "SELL": "0.51"} for token_id in token_ids}
             )

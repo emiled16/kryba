@@ -5,12 +5,13 @@ COMPOSE ?= docker compose
 API_URL ?= http://localhost:8000
 PYTHON ?= python
 
-.PHONY: help infra-up app-up up db-init wait-api sources ingest-markets ingest-quotes runs smoke logs-api logs-writer down
+.PHONY: help infra-up app-up up db-init wait-api sources ingest-markets ingest-quotes runs smoke smoke-clean logs-api logs-writer down reset
 
 help:
 	@printf "\nLocal ingestion targets\n\n"
-	@printf "  make up             Start infra, migrate DB, start API and writer\n"
+	@printf "  make up             Build app image, start infra, migrate DB, start API and writer\n"
 	@printf "  make smoke          Run a local ingestion smoke test end-to-end\n"
+	@printf "  make smoke-clean    Reset local data, then run the smoke test from a clean state\n"
 	@printf "  make sources        List discovered batch/stream sources\n"
 	@printf "  make ingest-markets Trigger the Polymarket markets ingestion job\n"
 	@printf "  make ingest-quotes  Trigger the Polymarket quotes ingestion job\n"
@@ -20,15 +21,15 @@ help:
 	@printf "  make down           Stop the local stack\n\n"
 
 infra-up:
-	$(COMPOSE) up -d postgres redpanda minio minio-init db-migrate
+	$(COMPOSE) up -d postgres redpanda minio minio-init
 
 app-up:
-	$(COMPOSE) up -d api writer
+	$(COMPOSE) up -d --build api writer
 
-up: infra-up app-up
+up: infra-up db-init app-up
 
 db-init:
-	$(COMPOSE) up db-migrate
+	$(COMPOSE) up --build db-migrate
 
 wait-api:
 	@until curl -fsS "$(API_URL)/healthz" >/dev/null; do \
@@ -55,6 +56,8 @@ smoke: up wait-api
 	@sleep 2
 	@$(MAKE) runs
 
+smoke-clean: reset smoke
+
 logs-api:
 	$(COMPOSE) logs -f api
 
@@ -63,3 +66,7 @@ logs-writer:
 
 down:
 	$(COMPOSE) down
+
+reset:
+	$(COMPOSE) down --remove-orphans
+	rm -rf artifacts/postgres artifacts/minio

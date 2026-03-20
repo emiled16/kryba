@@ -42,9 +42,16 @@ class InMemoryEventBus:
 
 
 class KafkaEventBus:
-    def __init__(self, bootstrap_servers: str, topic: str):
+    def __init__(
+        self,
+        bootstrap_servers: str,
+        topic: str,
+        *,
+        consumer_group_id: str | None = None,
+    ):
         self._bootstrap_servers = bootstrap_servers
         self._topic = topic
+        self._consumer_group_id = consumer_group_id or f"{topic}-consumer"
 
     async def publish(self, record: RawRecord) -> None:
         try:
@@ -76,6 +83,7 @@ class KafkaEventBus:
         consumer = KafkaConsumer(
             self._topic,
             bootstrap_servers=self._bootstrap_servers,
+            group_id=self._consumer_group_id,
             auto_offset_reset="earliest",
             enable_auto_commit=False,
             value_deserializer=lambda value: json.loads(value.decode("utf-8")),

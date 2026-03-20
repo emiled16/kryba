@@ -77,9 +77,13 @@ class PolymarketQuoteSource:
         if not token_ids:
             return {}
 
-        response = await self._http_client.get(
+        response = await self._http_client.post(
             f"{self._clob_base_url}/prices",
-            params=[("token_ids", token_id) for token_id in token_ids],
+            json=[
+                {"token_id": token_id, "side": side}
+                for token_id in token_ids
+                for side in ("BUY", "SELL")
+            ],
         )
         response.raise_for_status()
         payload = response.json()
