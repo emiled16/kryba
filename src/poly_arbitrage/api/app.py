@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from typing import cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -10,17 +11,17 @@ from poly_arbitrage.runtime.bootstrap import ApplicationRuntime, build_runtime
 
 
 def create_app(runtime: ApplicationRuntime | None = None) -> FastAPI:
-    resolved_runtime = runtime or build_runtime()
+    app = FastAPI(title="Poly Arbitrage Control API")
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI):
+    async def lifespan(app_instance: FastAPI):
+        app_instance.state.runtime = runtime or build_runtime()
         try:
             yield
         finally:
-            await resolved_runtime.aclose()
+            await _runtime(app_instance).aclose()
 
-    app = FastAPI(title="Poly Arbitrage Control API", lifespan=lifespan)
-    app.state.runtime = resolved_runtime
+    app.router.lifespan_context = lifespan
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -71,7 +72,7 @@ def create_app(runtime: ApplicationRuntime | None = None) -> FastAPI:
 
 
 def _runtime(app: FastAPI) -> ApplicationRuntime:
-    return app.state.runtime
+    return cast(ApplicationRuntime, app.state.runtime)
 
 
 app = create_app()
