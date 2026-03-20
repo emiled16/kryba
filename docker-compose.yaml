@@ -15,18 +15,32 @@ services:
     volumes:
       - ./artifacts/postgres:/var/lib/postgresql/data
 
-  rabbitmq:
-    image: rabbitmq:3.13-management
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v25.1.2
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - "1G"
+      - --reserve-memory
+      - "0M"
+      - --check=false
+      - --node-id
+      - "0"
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092,OUTSIDE://localhost:19092
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD-SHELL", "rpk cluster info -X brokers=localhost:9092 >/dev/null 2>&1"]
       interval: 5s
       timeout: 5s
       retries: 10
     ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - ./artifacts/rabbitmq:/var/lib/rabbitmq
+      - "19092:19092"
 
   minio:
     image: minio/minio:latest
@@ -65,26 +79,22 @@ services:
       dockerfile: docker/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/poly_arbitrage
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
-      QUEUE_NAME: ${QUEUE_NAME:-ingestion-runs}
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_RAW_TOPIC: ${KAFKA_RAW_TOPIC:-raw-records}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-raw-ingestion}
       STORAGE_PREFIX: ${STORAGE_PREFIX:-raw}
       STORAGE_ENDPOINT_URL: http://minio:9000
       STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio123}
-      FILESYSTEM_STORAGE_ROOT: ${FILESYSTEM_STORAGE_ROOT:-artifacts/datasets/raw}
-      POLYMARKET_BASE_URL: ${POLYMARKET_BASE_URL:-https://gamma-api.polymarket.com}
-      WORKER_MAX_ATTEMPTS_DEFAULT: ${WORKER_MAX_ATTEMPTS_DEFAULT:-5}
-      RETRY_BACKOFF_SECONDS: ${RETRY_BACKOFF_SECONDS:-30}
-      RETRY_MAX_BACKOFF_SECONDS: ${RETRY_MAX_BACKOFF_SECONDS:-900}
-      SCHEDULER_POLL_INTERVAL_SECONDS: ${SCHEDULER_POLL_INTERVAL_SECONDS:-15}
-      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-5}
-      BROKER_RETRY_SECONDS: ${BROKER_RETRY_SECONDS:-5}
+      POLYMARKET_GAMMA_BASE_URL: ${POLYMARKET_GAMMA_BASE_URL:-https://gamma-api.polymarket.com}
+      POLYMARKET_CLOB_BASE_URL: ${POLYMARKET_CLOB_BASE_URL:-https://clob.polymarket.com}
+      DAGSTER_HOME: /app/.dagster
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       postgres:
+        condition: service_healthy
+      redpanda:
         condition: service_healthy
     command: ["poly-init-db"]
     restart: "no"
@@ -96,30 +106,24 @@ services:
       dockerfile: docker/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/poly_arbitrage
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
-      QUEUE_NAME: ${QUEUE_NAME:-ingestion-runs}
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_RAW_TOPIC: ${KAFKA_RAW_TOPIC:-raw-records}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-raw-ingestion}
       STORAGE_PREFIX: ${STORAGE_PREFIX:-raw}
       STORAGE_ENDPOINT_URL: http://minio:9000
       STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio123}
-      FILESYSTEM_STORAGE_ROOT: ${FILESYSTEM_STORAGE_ROOT:-artifacts/datasets/raw}
-      POLYMARKET_BASE_URL: ${POLYMARKET_BASE_URL:-https://gamma-api.polymarket.com}
+      POLYMARKET_GAMMA_BASE_URL: ${POLYMARKET_GAMMA_BASE_URL:-https://gamma-api.polymarket.com}
+      POLYMARKET_CLOB_BASE_URL: ${POLYMARKET_CLOB_BASE_URL:-https://clob.polymarket.com}
       API_HOST: 0.0.0.0
       API_PORT: ${API_PORT:-8000}
-      WORKER_MAX_ATTEMPTS_DEFAULT: ${WORKER_MAX_ATTEMPTS_DEFAULT:-5}
-      RETRY_BACKOFF_SECONDS: ${RETRY_BACKOFF_SECONDS:-30}
-      RETRY_MAX_BACKOFF_SECONDS: ${RETRY_MAX_BACKOFF_SECONDS:-900}
-      SCHEDULER_POLL_INTERVAL_SECONDS: ${SCHEDULER_POLL_INTERVAL_SECONDS:-15}
-      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-5}
-      BROKER_RETRY_SECONDS: ${BROKER_RETRY_SECONDS:-5}
+      DAGSTER_HOME: /app/.dagster
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
+      redpanda:
         condition: service_healthy
       minio:
         condition: service_healthy
@@ -131,70 +135,29 @@ services:
     ports:
       - "8000:8000"
 
-  scheduler:
+  writer:
     image: poly-arbitrage:local
     build:
       context: .
       dockerfile: docker/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/poly_arbitrage
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
-      QUEUE_NAME: ${QUEUE_NAME:-ingestion-runs}
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_RAW_TOPIC: ${KAFKA_RAW_TOPIC:-raw-records}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-raw-ingestion}
       STORAGE_PREFIX: ${STORAGE_PREFIX:-raw}
       STORAGE_ENDPOINT_URL: http://minio:9000
       STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio123}
-      FILESYSTEM_STORAGE_ROOT: ${FILESYSTEM_STORAGE_ROOT:-artifacts/datasets/raw}
-      POLYMARKET_BASE_URL: ${POLYMARKET_BASE_URL:-https://gamma-api.polymarket.com}
-      WORKER_MAX_ATTEMPTS_DEFAULT: ${WORKER_MAX_ATTEMPTS_DEFAULT:-5}
-      RETRY_BACKOFF_SECONDS: ${RETRY_BACKOFF_SECONDS:-30}
-      RETRY_MAX_BACKOFF_SECONDS: ${RETRY_MAX_BACKOFF_SECONDS:-900}
-      SCHEDULER_POLL_INTERVAL_SECONDS: ${SCHEDULER_POLL_INTERVAL_SECONDS:-15}
-      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-5}
-      BROKER_RETRY_SECONDS: ${BROKER_RETRY_SECONDS:-5}
+      POLYMARKET_GAMMA_BASE_URL: ${POLYMARKET_GAMMA_BASE_URL:-https://gamma-api.polymarket.com}
+      POLYMARKET_CLOB_BASE_URL: ${POLYMARKET_CLOB_BASE_URL:-https://clob.polymarket.com}
+      DAGSTER_HOME: /app/.dagster
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      db-migrate:
-        condition: service_completed_successfully
-    command: ["poly-scheduler"]
-    restart: unless-stopped
-
-  worker:
-    image: poly-arbitrage:local
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/poly_arbitrage
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
-      QUEUE_NAME: ${QUEUE_NAME:-ingestion-runs}
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
-      STORAGE_BUCKET: ${STORAGE_BUCKET:-raw-ingestion}
-      STORAGE_PREFIX: ${STORAGE_PREFIX:-raw}
-      STORAGE_ENDPOINT_URL: http://minio:9000
-      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
-      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
-      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio123}
-      FILESYSTEM_STORAGE_ROOT: ${FILESYSTEM_STORAGE_ROOT:-artifacts/datasets/raw}
-      POLYMARKET_BASE_URL: ${POLYMARKET_BASE_URL:-https://gamma-api.polymarket.com}
-      WORKER_MAX_ATTEMPTS_DEFAULT: ${WORKER_MAX_ATTEMPTS_DEFAULT:-5}
-      RETRY_BACKOFF_SECONDS: ${RETRY_BACKOFF_SECONDS:-30}
-      RETRY_MAX_BACKOFF_SECONDS: ${RETRY_MAX_BACKOFF_SECONDS:-900}
-      SCHEDULER_POLL_INTERVAL_SECONDS: ${SCHEDULER_POLL_INTERVAL_SECONDS:-15}
-      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-5}
-      BROKER_RETRY_SECONDS: ${BROKER_RETRY_SECONDS:-5}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
+      redpanda:
         condition: service_healthy
       minio:
         condition: service_healthy
@@ -202,5 +165,65 @@ services:
         condition: service_completed_successfully
       db-migrate:
         condition: service_completed_successfully
-    command: ["poly-worker"]
+    command: ["poly-writer"]
+    restart: unless-stopped
+
+  dagster-webserver:
+    image: poly-arbitrage:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/poly_arbitrage
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_RAW_TOPIC: ${KAFKA_RAW_TOPIC:-raw-records}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-raw-ingestion}
+      STORAGE_PREFIX: ${STORAGE_PREFIX:-raw}
+      STORAGE_ENDPOINT_URL: http://minio:9000
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio123}
+      POLYMARKET_GAMMA_BASE_URL: ${POLYMARKET_GAMMA_BASE_URL:-https://gamma-api.polymarket.com}
+      POLYMARKET_CLOB_BASE_URL: ${POLYMARKET_CLOB_BASE_URL:-https://clob.polymarket.com}
+      DAGSTER_HOME: /app/.dagster
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "workspace.yaml"]
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  dagster-daemon:
+    image: poly-arbitrage:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/poly_arbitrage
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_RAW_TOPIC: ${KAFKA_RAW_TOPIC:-raw-records}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-raw-ingestion}
+      STORAGE_PREFIX: ${STORAGE_PREFIX:-raw}
+      STORAGE_ENDPOINT_URL: http://minio:9000
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio123}
+      POLYMARKET_GAMMA_BASE_URL: ${POLYMARKET_GAMMA_BASE_URL:-https://gamma-api.polymarket.com}
+      POLYMARKET_CLOB_BASE_URL: ${POLYMARKET_CLOB_BASE_URL:-https://clob.polymarket.com}
+      DAGSTER_HOME: /app/.dagster
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+    command: ["dagster-daemon", "run", "-w", "workspace.yaml"]
     restart: unless-stopped
