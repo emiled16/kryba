@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC
 
+from poly_arbitrage.connectors.discovery import SourceRegistry
 from poly_arbitrage.contracts import (
     BlobWriter,
-    EntityCatalog,
+    EntityStore,
     MetadataWriter,
     PersistedRecord,
     RawRecord,
 )
 from poly_arbitrage.hashing import build_idempotency_key, stable_payload_hash
-from poly_arbitrage.runtime.catalog import project_entity_states
 from poly_arbitrage.runtime.event_bus import EventBus
 
 
@@ -21,13 +21,15 @@ class WriterApplication:
         bus: EventBus,
         blob_writer: BlobWriter,
         metadata_writer: MetadataWriter,
-        catalog: EntityCatalog,
+        entity_store: EntityStore,
+        source_registry: SourceRegistry,
         storage_prefix: str,
     ):
         self._bus = bus
         self._blob_writer = blob_writer
         self._metadata_writer = metadata_writer
-        self._catalog = catalog
+        self._entity_store = entity_store
+        self._source_registry = source_registry
         self._storage_prefix = storage_prefix.strip("/")
 
     async def persist_pending(self, *, max_messages: int | None = None) -> int:
@@ -48,8 +50,8 @@ class WriterApplication:
                 idempotency_key=idempotency_key,
             )
         )
-        for entity in project_entity_states(record):
-            await self._catalog.upsert_entity(entity)
+        for entity in self._source_registry.project_entities(record):
+            await self._entity_store.upsert_entity(entity)
 
     def _build_blob_key(self, record: RawRecord, idempotency_key: str) -> str:
         fetched_date = record.fetched_at.astimezone(UTC).date().isoformat()

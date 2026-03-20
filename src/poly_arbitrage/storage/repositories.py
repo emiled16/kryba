@@ -8,8 +8,8 @@ from sqlalchemy.exc import IntegrityError
 
 from poly_arbitrage.contracts import (
     CheckpointStore,
-    EntityCatalog,
     EntityState,
+    EntityStore,
     MetadataWriter,
     PersistedRecord,
     RunStore,
@@ -22,7 +22,7 @@ from poly_arbitrage.storage.models import (
 )
 
 
-class SqlAlchemyStore(MetadataWriter, CheckpointStore, EntityCatalog, RunStore):
+class SqlAlchemyStore(MetadataWriter, CheckpointStore, EntityStore, RunStore):
     def __init__(self, session_factory):
         self._session_factory = session_factory
 

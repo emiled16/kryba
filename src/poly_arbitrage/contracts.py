@@ -109,7 +109,7 @@ class CheckpointStore(Protocol):
         """Persist a cursor."""
 
 
-class EntityCatalog(Protocol):
+class EntityStore(Protocol):
     async def upsert_entity(self, entity: EntityState) -> None:
         """Create or update an entity row."""
 
@@ -122,7 +122,7 @@ class EntityCatalog(Protocol):
         parent_entity_type: str | None = None,
         parent_entity_id: str | None = None,
     ) -> list[EntityState]:
-        """List catalog entities matching the provided filters."""
+        """List stored entities matching the provided filters."""
 
 
 class RunStore(Protocol):
@@ -141,6 +141,7 @@ class RunStore(Protocol):
 
 BatchFetchFn = Callable[..., Awaitable[tuple[list[RawRecord], str | None]]]
 StreamConsumeFn = Callable[..., Awaitable[int]]
+EntityProjector = Callable[[RawRecord], list[EntityState]]
 
 
 @dataclass(slots=True, frozen=True)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from poly_arbitrage.connectors.discovery import ConnectorServices, SourceRegistry
+from poly_arbitrage.connectors.polymarket.entity_projection import project_entities
 from poly_arbitrage.connectors.polymarket.markets import PolymarketMarketsSource
 from poly_arbitrage.connectors.polymarket.quotes import (
     PolymarketQuoteSource,
@@ -11,8 +12,8 @@ from poly_arbitrage.contracts import BatchSourceRegistration, StreamSourceRegist
 
 def register(registry: SourceRegistry, services: ConnectorServices) -> None:
     markets_source = PolymarketMarketsSource(services.client)
-    quotes_source = PolymarketQuoteSource(services.client, services.catalog)
-    quote_stream_source = PolymarketQuoteStreamSource(services.catalog)
+    quotes_source = PolymarketQuoteSource(services.client, services.entity_store)
+    quote_stream_source = PolymarketQuoteStreamSource(services.entity_store)
 
     registry.register_batch(
         BatchSourceRegistration(spec=markets_source.spec, fetch=markets_source.fetch)
@@ -26,3 +27,4 @@ def register(registry: SourceRegistry, services: ConnectorServices) -> None:
             consume=quote_stream_source.stream,
         )
     )
+    registry.register_entity_projector("polymarket", project_entities)

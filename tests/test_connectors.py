@@ -29,7 +29,7 @@ class FakePolymarketClient:
         return {token_id: {"BUY": "0.50", "SELL": "0.51"} for token_id in token_ids}
 
 
-class FakeCatalog:
+class FakeEntityStore:
     async def list_entities(self, source: str, entity_type: str, **_: object):
         if entity_type == "market":
             return [
@@ -93,7 +93,7 @@ async def test_markets_source_builds_market_records() -> None:
 
 @pytest.mark.asyncio
 async def test_quote_source_builds_quote_records_from_catalog_markets() -> None:
-    source = PolymarketQuoteSource(FakePolymarketClient(), FakeCatalog())
+    source = PolymarketQuoteSource(FakePolymarketClient(), FakeEntityStore())
 
     records, checkpoint = await source.fetch(chunk_size=10)
 
@@ -107,7 +107,7 @@ async def test_quote_stream_preserves_parent_market_linkage() -> None:
     published = []
     websocket = FakeWebSocket(['{"asset_id":"tok-yes","event_type":"price_change"}'])
     source = PolymarketQuoteStreamSource(
-        FakeCatalog(),
+        FakeEntityStore(),
         websocket_connector=lambda *_args, **_kwargs: websocket,
     )
 

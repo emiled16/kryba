@@ -6,9 +6,7 @@ from poly_arbitrage.connectors.polymarket.parsing import parse_string_list
 from poly_arbitrage.contracts import EntityState, IngestionMode, RawRecord
 
 
-def project_entity_states(record: RawRecord) -> list[EntityState]:
-    if record.source != "polymarket":
-        return []
+def project_entities(record: RawRecord) -> list[EntityState]:
     if record.entity_type == "market":
         payload = record.payload
         is_active = payload.get("active", True) and not payload.get("closed", False)
@@ -30,12 +28,11 @@ def project_entity_states(record: RawRecord) -> list[EntityState]:
                 },
             )
         ]
+
     if record.entity_type == "quote":
         payload = record.payload
         subscription_target = (
-            record.parent_entity_id
-            or payload.get("market_id")
-            or payload.get("marketId")
+            record.parent_entity_id or payload.get("market_id") or payload.get("marketId")
         )
         return [
             EntityState(
@@ -56,4 +53,5 @@ def project_entity_states(record: RawRecord) -> list[EntityState]:
                 ),
             )
         ]
+
     return []

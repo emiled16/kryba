@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from poly_arbitrage.connectors.polymarket.client import PolymarketClient
 from poly_arbitrage.connectors.polymarket.parsing import parse_string_list
-from poly_arbitrage.contracts import EntityCatalog, IngestionMode, RawRecord, SourceSpec
+from poly_arbitrage.contracts import EntityStore, IngestionMode, RawRecord, SourceSpec
 
 
 class PolymarketQuoteSource:
@@ -17,9 +17,9 @@ class PolymarketQuoteSource:
         cron_schedule="*/5 * * * *",
     )
 
-    def __init__(self, client: PolymarketClient, catalog: EntityCatalog):
+    def __init__(self, client: PolymarketClient, entity_store: EntityStore):
         self._client = client
-        self._catalog = catalog
+        self._entity_store = entity_store
 
     async def fetch(
         self,
@@ -28,7 +28,7 @@ class PolymarketQuoteSource:
         chunk_size: int = 50,
     ) -> tuple[list[RawRecord], str | None]:
         del cursor
-        markets = await self._catalog.list_entities("polymarket", "market", status="active")
+        markets = await self._entity_store.list_entities("polymarket", "market", status="active")
         market_tokens: list[tuple[str, str, str | None]] = []
         for market in markets:
             token_ids = parse_string_list(market.attributes.get("clob_token_ids"))
@@ -76,11 +76,11 @@ class PolymarketQuoteStreamSource:
 
     def __init__(
         self,
-        catalog: EntityCatalog,
+        entity_store: EntityStore,
         websocket_url: str | None = None,
         websocket_connector: Callable[..., Awaitable[object]] | None = None,
     ):
-        self._catalog = catalog
+        self._entity_store = entity_store
         self._websocket_url = websocket_url or "wss://ws-subscriptions-clob.polymarket.com/ws/market"
         self._websocket_connector = websocket_connector
 
@@ -90,7 +90,7 @@ class PolymarketQuoteStreamSource:
         *,
         max_messages: int | None = None,
     ) -> int:
-        quotes = await self._catalog.list_entities("polymarket", "quote", status="active")
+        quotes = await self._entity_store.list_entities("polymarket", "quote", status="active")
         quote_lookup = {
             quote.entity_id: quote for quote in quotes if quote.subscription_status != "disabled"
         }

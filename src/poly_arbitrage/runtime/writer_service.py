@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import asyncio
 
-from poly_arbitrage.runtime.bootstrap import build_container
+from poly_arbitrage.runtime.bootstrap import build_runtime
 
 
 async def _run() -> None:
-    container = build_container()
+    runtime = build_runtime()
     try:
         while True:
-            processed = await container.writer.persist_pending()
+            processed = await runtime.writer.persist_pending()
             if processed == 0:
                 await asyncio.sleep(1)
     finally:
-        await container.aclose()
+        await runtime.aclose()
 
 
 def main() -> None:

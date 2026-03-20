@@ -16,12 +16,14 @@ from poly_arbitrage.storage import S3BlobWriter, SqlAlchemyStore, create_engine_
 
 
 @dataclass(slots=True)
-class ApplicationContainer:
+class ApplicationRuntime:
+    """Process-scoped services shared by the API and worker entrypoints."""
+
     settings: Settings
     client: PolymarketClient
     store: SqlAlchemyStore
     bus: KafkaEventBus | InMemoryEventBus
-    registry: SourceRegistry
+    source_registry: SourceRegistry
     ingestion: IngestionApplication
     writer: WriterApplication
 
@@ -29,13 +31,13 @@ class ApplicationContainer:
         await self.client.aclose()
 
 
-def build_container(
+def build_runtime(
     settings: Settings | None = None,
     *,
     bus: KafkaEventBus | InMemoryEventBus | None = None,
     store: SqlAlchemyStore | None = None,
     blob_writer: S3BlobWriter | None = None,
-) -> ApplicationContainer:
+) -> ApplicationRuntime:
     resolved_settings = settings or Settings.from_env()
     _, session_factory = create_engine_and_session_factory(resolved_settings.database_url)
     resolved_store = store or SqlAlchemyStore(session_factory)
@@ -49,7 +51,7 @@ def build_container(
         ConnectorServices(
             settings=resolved_settings,
             client=client,
-            catalog=resolved_store,
+            entity_store=resolved_store,
         )
     )
     ingestion = IngestionApplication(
@@ -62,15 +64,16 @@ def build_container(
         bus=resolved_bus,
         blob_writer=resolved_blob_writer,
         metadata_writer=resolved_store,
-        catalog=resolved_store,
+        entity_store=resolved_store,
+        source_registry=registry,
         storage_prefix=resolved_settings.storage_prefix,
     )
-    return ApplicationContainer(
+    return ApplicationRuntime(
         settings=resolved_settings,
         client=client,
         store=resolved_store,
         bus=resolved_bus,
-        registry=registry,
+        source_registry=registry,
         ingestion=ingestion,
         writer=writer,
     )

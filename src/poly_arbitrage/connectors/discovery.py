@@ -6,26 +6,36 @@ from dataclasses import dataclass
 from typing import Any
 
 from poly_arbitrage.config import Settings
-from poly_arbitrage.contracts import BatchSourceRegistration, StreamSourceRegistration
+from poly_arbitrage.contracts import (
+    BatchSourceRegistration,
+    EntityProjector,
+    EntityState,
+    RawRecord,
+    StreamSourceRegistration,
+)
 
 
 @dataclass(slots=True)
 class ConnectorServices:
     settings: Settings
     client: Any
-    catalog: Any
+    entity_store: Any
 
 
 class SourceRegistry:
     def __init__(self):
         self._batch_sources: dict[str, BatchSourceRegistration] = {}
         self._stream_sources: dict[str, StreamSourceRegistration] = {}
+        self._entity_projectors: dict[str, EntityProjector] = {}
 
     def register_batch(self, registration: BatchSourceRegistration) -> None:
         self._batch_sources[registration.spec.name] = registration
 
     def register_stream(self, registration: StreamSourceRegistration) -> None:
         self._stream_sources[registration.spec.name] = registration
+
+    def register_entity_projector(self, source: str, projector: EntityProjector) -> None:
+        self._entity_projectors[source] = projector
 
     def get_batch(self, job_name: str) -> BatchSourceRegistration:
         return self._batch_sources[job_name]
@@ -38,6 +48,12 @@ class SourceRegistry:
 
     def list_stream(self) -> list[StreamSourceRegistration]:
         return list(self._stream_sources.values())
+
+    def project_entities(self, record: RawRecord) -> list[EntityState]:
+        projector = self._entity_projectors.get(record.source)
+        if projector is None:
+            return []
+        return projector(record)
 
 
 def discover_source_registry(services: ConnectorServices) -> SourceRegistry:

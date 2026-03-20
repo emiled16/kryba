@@ -42,7 +42,7 @@ def build_ingestion(bus: InMemoryEventBus, store: SqlAlchemyStore, client: StubP
         ConnectorServices(
             settings=Settings.from_env(),
             client=client,
-            catalog=store,
+            entity_store=store,
         )
     )
     return IngestionApplication(
@@ -60,12 +60,20 @@ async def test_markets_then_quotes_end_to_end() -> None:
     store = SqlAlchemyStore(session_factory)
     bus = InMemoryEventBus()
     client = StubPolymarketClient()
+    registry = discover_source_registry(
+        ConnectorServices(
+            settings=Settings.from_env(),
+            client=client,
+            entity_store=store,
+        )
+    )
     ingestion = build_ingestion(bus, store, client)
     writer = WriterApplication(
         bus=bus,
         blob_writer=InMemoryBlobWriter(),
         metadata_writer=store,
-        catalog=store,
+        entity_store=store,
+        source_registry=registry,
         storage_prefix="raw",
     )
 
@@ -122,7 +130,14 @@ async def test_duplicate_delivery_skips_extra_blob_and_metadata_write() -> None:
         bus=bus,
         blob_writer=blob_writer,
         metadata_writer=store,
-        catalog=store,
+        entity_store=store,
+        source_registry=discover_source_registry(
+            ConnectorServices(
+                settings=Settings.from_env(),
+                client=StubPolymarketClient(),
+                entity_store=store,
+            )
+        ),
         storage_prefix="raw",
     )
     record, _ = await PolymarketMarketsSource(StubPolymarketClient()).fetch(cursor="0", limit=1)
@@ -165,7 +180,14 @@ async def test_stream_update_preserves_quote_catalog_relationships() -> None:
         bus=InMemoryEventBus(),
         blob_writer=InMemoryBlobWriter(),
         metadata_writer=store,
-        catalog=store,
+        entity_store=store,
+        source_registry=discover_source_registry(
+            ConnectorServices(
+                settings=Settings.from_env(),
+                client=StubPolymarketClient(),
+                entity_store=store,
+            )
+        ),
         storage_prefix="raw",
     )
 
