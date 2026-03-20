@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import httpx
+
 from poly_arbitrage.config import Settings
 from poly_arbitrage.connectors.discovery import (
     ConnectorServices,
     SourceRegistry,
     discover_source_registry,
 )
-from poly_arbitrage.connectors.polymarket.client import PolymarketClient
 from poly_arbitrage.runtime.event_bus import InMemoryEventBus, KafkaEventBus
 from poly_arbitrage.runtime.ingestion import IngestionApplication
 from poly_arbitrage.runtime.writer import WriterApplication
@@ -20,7 +21,7 @@ class ApplicationRuntime:
     """Process-scoped services shared by the API and worker entrypoints."""
 
     settings: Settings
-    client: PolymarketClient
+    http_client: httpx.AsyncClient
     store: SqlAlchemyStore
     bus: KafkaEventBus | InMemoryEventBus
     source_registry: SourceRegistry
@@ -28,7 +29,7 @@ class ApplicationRuntime:
     writer: WriterApplication
 
     async def aclose(self) -> None:
-        await self.client.aclose()
+        await self.http_client.aclose()
 
 
 def build_runtime(
@@ -46,11 +47,11 @@ def build_runtime(
         topic=resolved_settings.kafka_raw_topic,
     )
     resolved_blob_writer = blob_writer or S3BlobWriter(resolved_settings)
-    client = PolymarketClient(resolved_settings)
+    http_client = httpx.AsyncClient(timeout=30.0)
     registry = discover_source_registry(
         ConnectorServices(
             settings=resolved_settings,
-            client=client,
+            http_client=http_client,
             entity_store=resolved_store,
         )
     )
@@ -70,7 +71,7 @@ def build_runtime(
     )
     return ApplicationRuntime(
         settings=resolved_settings,
-        client=client,
+        http_client=http_client,
         store=resolved_store,
         bus=resolved_bus,
         source_registry=registry,

@@ -18,30 +18,51 @@ from poly_arbitrage.storage.models import Base, RawRecordIndexModel
 from poly_arbitrage.storage.repositories import SqlAlchemyStore
 
 
-class StubPolymarketClient:
-    async def list_markets(self, *, limit: int = 100, offset: int = 0):
-        return [
-            {
-                "id": "mkt-1",
-                "question": "Will it rain?",
-                "slug": "will-it-rain",
-                "conditionId": "cond-1",
-                "active": True,
-                "closed": False,
-                "clobTokenIds": ["tok-yes", "tok-no"],
-                "outcomes": ["Yes", "No"],
-            }
-        ]
+class FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
 
-    async def get_market_prices(self, token_ids: list[str]):
-        return {token_id: {"BUY": "0.42", "SELL": "0.43"} for token_id in token_ids}
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self):
+        return self._payload
 
 
-def build_ingestion(bus: InMemoryEventBus, store: SqlAlchemyStore, client: StubPolymarketClient):
+class StubPolymarketHttpClient:
+    async def get(self, url: str, params):
+        if url.endswith("/markets"):
+            return FakeResponse(
+                [
+                    {
+                        "id": "mkt-1",
+                        "question": "Will it rain?",
+                        "slug": "will-it-rain",
+                        "conditionId": "cond-1",
+                        "active": True,
+                        "closed": False,
+                        "clobTokenIds": ["tok-yes", "tok-no"],
+                        "outcomes": ["Yes", "No"],
+                    }
+                ]
+            )
+        if url.endswith("/prices"):
+            token_ids = [token_id for key, token_id in params if key == "token_ids"]
+            return FakeResponse(
+                {token_id: {"BUY": "0.42", "SELL": "0.43"} for token_id in token_ids}
+            )
+        raise AssertionError(f"Unexpected url: {url}")
+
+
+def build_ingestion(
+    bus: InMemoryEventBus,
+    store: SqlAlchemyStore,
+    http_client: StubPolymarketHttpClient,
+):
     registry = discover_source_registry(
         ConnectorServices(
             settings=Settings.from_env(),
-            client=client,
+            http_client=http_client,
             entity_store=store,
         )
     )
@@ -59,15 +80,15 @@ async def test_markets_then_quotes_end_to_end() -> None:
     Base.metadata.create_all(bind=engine)
     store = SqlAlchemyStore(session_factory)
     bus = InMemoryEventBus()
-    client = StubPolymarketClient()
+    http_client = StubPolymarketHttpClient()
     registry = discover_source_registry(
         ConnectorServices(
             settings=Settings.from_env(),
-            client=client,
+            http_client=http_client,
             entity_store=store,
         )
     )
-    ingestion = build_ingestion(bus, store, client)
+    ingestion = build_ingestion(bus, store, http_client)
     writer = WriterApplication(
         bus=bus,
         blob_writer=InMemoryBlobWriter(),
@@ -113,7 +134,11 @@ async def test_quote_source_uses_catalog_entities() -> None:
         )
     )
 
-    records, _ = await PolymarketQuoteSource(StubPolymarketClient(), store).fetch()
+    records, _ = await PolymarketQuoteSource(
+        StubPolymarketHttpClient(),
+        store,
+        clob_base_url="https://clob.polymarket.test",
+    ).fetch()
 
     assert len(records) == 1
     assert records[0].parent_entity_id == "mkt-1"
@@ -134,13 +159,16 @@ async def test_duplicate_delivery_skips_extra_blob_and_metadata_write() -> None:
         source_registry=discover_source_registry(
             ConnectorServices(
                 settings=Settings.from_env(),
-                client=StubPolymarketClient(),
+                http_client=StubPolymarketHttpClient(),
                 entity_store=store,
             )
         ),
         storage_prefix="raw",
     )
-    record, _ = await PolymarketMarketsSource(StubPolymarketClient()).fetch(cursor="0", limit=1)
+    record, _ = await PolymarketMarketsSource(
+        StubPolymarketHttpClient(),
+        gamma_base_url="https://gamma.polymarket.test",
+    ).fetch(cursor="0", limit=1)
 
     await bus.publish(record[0])
     await bus.publish(record[0])
@@ -184,7 +212,7 @@ async def test_stream_update_preserves_quote_catalog_relationships() -> None:
         source_registry=discover_source_registry(
             ConnectorServices(
                 settings=Settings.from_env(),
-                client=StubPolymarketClient(),
+                http_client=StubPolymarketHttpClient(),
                 entity_store=store,
             )
         ),

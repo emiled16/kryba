@@ -5,6 +5,8 @@ import pkgutil
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
+
 from poly_arbitrage.config import Settings
 from poly_arbitrage.contracts import (
     BatchSourceRegistration,
@@ -18,7 +20,7 @@ from poly_arbitrage.contracts import (
 @dataclass(slots=True)
 class ConnectorServices:
     settings: Settings
-    client: Any
+    http_client: httpx.AsyncClient
     entity_store: Any
 
 

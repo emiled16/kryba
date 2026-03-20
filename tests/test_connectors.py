@@ -12,21 +12,38 @@ from poly_arbitrage.connectors.polymarket.quotes import (
 from poly_arbitrage.contracts import EntityState
 
 
-class FakePolymarketClient:
-    async def list_markets(self, *, limit: int = 100, offset: int = 0):
-        return [
-            {
-                "id": "mkt-1",
-                "question": "Will it rain?",
-                "active": True,
-                "closed": False,
-                "clobTokenIds": ["tok-yes", "tok-no"],
-                "outcomes": ["Yes", "No"],
-            }
-        ]
+class FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
 
-    async def get_market_prices(self, token_ids: list[str]):
-        return {token_id: {"BUY": "0.50", "SELL": "0.51"} for token_id in token_ids}
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self):
+        return self._payload
+
+
+class FakePolymarketHttpClient:
+    async def get(self, url: str, params):
+        if url.endswith("/markets"):
+            return FakeResponse(
+                [
+                    {
+                        "id": "mkt-1",
+                        "question": "Will it rain?",
+                        "active": True,
+                        "closed": False,
+                        "clobTokenIds": ["tok-yes", "tok-no"],
+                        "outcomes": ["Yes", "No"],
+                    }
+                ]
+            )
+        if url.endswith("/prices"):
+            token_ids = [token_id for key, token_id in params if key == "token_ids"]
+            return FakeResponse(
+                {token_id: {"BUY": "0.50", "SELL": "0.51"} for token_id in token_ids}
+            )
+        raise AssertionError(f"Unexpected url: {url}")
 
 
 class FakeEntityStore:
@@ -82,7 +99,10 @@ class FakeWebSocket:
 
 @pytest.mark.asyncio
 async def test_markets_source_builds_market_records() -> None:
-    source = PolymarketMarketsSource(FakePolymarketClient())
+    source = PolymarketMarketsSource(
+        FakePolymarketHttpClient(),
+        gamma_base_url="https://gamma.polymarket.test",
+    )
 
     records, next_cursor = await source.fetch(cursor="0", limit=100)
 
@@ -93,7 +113,11 @@ async def test_markets_source_builds_market_records() -> None:
 
 @pytest.mark.asyncio
 async def test_quote_source_builds_quote_records_from_catalog_markets() -> None:
-    source = PolymarketQuoteSource(FakePolymarketClient(), FakeEntityStore())
+    source = PolymarketQuoteSource(
+        FakePolymarketHttpClient(),
+        FakeEntityStore(),
+        clob_base_url="https://clob.polymarket.test",
+    )
 
     records, checkpoint = await source.fetch(chunk_size=10)
 

@@ -11,8 +11,15 @@ from poly_arbitrage.contracts import BatchSourceRegistration, StreamSourceRegist
 
 
 def register(registry: SourceRegistry, services: ConnectorServices) -> None:
-    markets_source = PolymarketMarketsSource(services.client)
-    quotes_source = PolymarketQuoteSource(services.client, services.entity_store)
+    markets_source = PolymarketMarketsSource(
+        services.http_client,
+        gamma_base_url=services.settings.polymarket_gamma_base_url,
+    )
+    quotes_source = PolymarketQuoteSource(
+        services.http_client,
+        services.entity_store,
+        clob_base_url=services.settings.polymarket_clob_base_url,
+    )
     quote_stream_source = PolymarketQuoteStreamSource(services.entity_store)
 
     registry.register_batch(

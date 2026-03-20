@@ -4,7 +4,8 @@ import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
-from poly_arbitrage.connectors.polymarket.client import PolymarketClient
+import httpx
+
 from poly_arbitrage.connectors.polymarket.parsing import parse_string_list
 from poly_arbitrage.contracts import EntityStore, IngestionMode, RawRecord, SourceSpec
 
@@ -12,14 +13,21 @@ from poly_arbitrage.contracts import EntityStore, IngestionMode, RawRecord, Sour
 class PolymarketQuoteSource:
     spec = SourceSpec(
         name="polymarket_quotes",
-        produces="quote",
-        depends_on=["market"],
+        produces="polymarket::quote",
+        depends_on=["polymarket::market"],
         cron_schedule="*/5 * * * *",
     )
 
-    def __init__(self, client: PolymarketClient, entity_store: EntityStore):
-        self._client = client
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient,
+        entity_store: EntityStore,
+        *,
+        clob_base_url: str,
+    ):
+        self._http_client = http_client
         self._entity_store = entity_store
+        self._clob_base_url = clob_base_url.rstrip("/")
 
     async def fetch(
         self,
@@ -41,7 +49,7 @@ class PolymarketQuoteSource:
         records: list[RawRecord] = []
         for start in range(0, len(market_tokens), chunk_size):
             chunk = market_tokens[start : start + chunk_size]
-            prices = await self._client.get_market_prices([token_id for _, token_id, _ in chunk])
+            prices = await self._get_market_prices([token_id for _, token_id, _ in chunk])
             for market_id, token_id, outcome in chunk:
                 price_payload = {
                     "token_id": token_id,
@@ -65,12 +73,26 @@ class PolymarketQuoteSource:
                 )
         return records, fetched_at.isoformat()
 
+    async def _get_market_prices(self, token_ids: list[str]) -> dict[str, dict[str, str]]:
+        if not token_ids:
+            return {}
+
+        response = await self._http_client.get(
+            f"{self._clob_base_url}/prices",
+            params=[("token_ids", token_id) for token_id in token_ids],
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Unexpected Polymarket prices response shape")
+        return payload
+
 
 class PolymarketQuoteStreamSource:
     spec = SourceSpec(
         name="polymarket_quote_stream",
-        produces="quote",
-        depends_on=["market"],
+        produces="polymarket::quote",
+        depends_on=["polymarket::market"],
         modes=[IngestionMode.STREAM],
     )
 
