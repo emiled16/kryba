@@ -24,11 +24,11 @@ def create_app(runtime: ApplicationRuntime | None = None) -> FastAPI:
     app.router.lifespan_context = lifespan
 
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
+    async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/readyz")
-    def readyz() -> dict[str, str]:
+    async def readyz() -> dict[str, str]:
         return {"status": "ready"}
 
     @app.get("/sources")
